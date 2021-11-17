@@ -1,0 +1,12 @@
+#!/bin/bash
+NUM=$(cat /etc/passwd | cut -d: -f3)
+MIN="999"
+MAX="2000"
+ 
+echo "Lista de usuarios:"
+for ID in do $NUM; do
+    if [ $ID -gt $MIN > /dev/null 2>&1 ] && [ $ID -lt $MAX > /dev/null 2>&1 ] ; then
+                USER=$(cat /etc/passwd | cut -d: -f1-3 | grep $ID | cut -d: -f1)
+                echo "$USER"
+        fi
+done
