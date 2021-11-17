@@ -10,3 +10,5 @@ for ID in do $NUM; do
                 echo "$USER"
         fi
 done
+
+#El 1 denota la salida estándar (stdout). El 2 denota el error estándar (stderr).Tan 2>&1 dice enviar error estándar a donde siempre es redirigido como salida estándar. Que desde se envía a /dev/null es similar a ignorar cualquier salida en absoluto.
