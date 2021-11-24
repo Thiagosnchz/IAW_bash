@@ -24,3 +24,7 @@ clear
 	else 
 	    echo salir
 	fi
+
+#wordpress
+# Send mail to confirm that everything has gone as expected
+echo 'Backup for your site has been completed' | mail -s "Wordpress backup successfully completed" $wp_email
