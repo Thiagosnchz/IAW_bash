@@ -1,0 +1,249 @@
+#!/bin/bash 
+
+clear
+	
+
+echo ""
+echo "Bienvenido al menu de administración"
+echo "===================================="
+echo ""
+echo "1. Crear usuario"
+echo "2. Modificar contraseña"
+echo "3. Listar usuarios"
+echo "4. Borrar usuario"
+echo ""
+echo "NOTA: Todas las configuraciones, deben realizarse como 'root'"
+echo ""
+	
+read -p "Seleccione la opcion deseada: " opcion
+	
+if [ 1 -eq $opcion ]; then
+
+	contrasenia="Clave_$RANDOM"
+	password=$(echo $contrasenia | mkpasswd --method=sha-256 --stdin)
+
+	read -p 'Escriba el nombre de usuario con su DNI (ejemplo:pedro03645284G): ' nombre
+	read -p 'Indique el correo electonico: ' correo
+	echo "Nombre de usuario: $nombre"
+	echo "Contraseña: $contrasenia"
+	echo "Contraseña cifrada: $password"
+	echo "Correo electronico: $correo"
+	#printf "$nombre":"$password" | chpasswd
+	echo "$nombre":"$contrasenia" > /etc/fichero-UC.txt
+
+	if [ -d /var/www/$nombre ]; then
+		echo 'el usuario' $nombre 'existe'
+	else
+		useradd $nombre -m -d /var/www/$nombre --shell /bin/bash
+		mkdir /var/www/$nombre/{web,blog,files}
+		mkdir /var/www/$nombre/files/logs
+		chmod -R 755 /var/www/$nombre/
+		chown -R $nombre:$nombre /var/www/$nombre/
+		
+		#Crear documento HTML para cada usuario
+		
+		cp /var/www/index.html /var/www/$nombre/web
+		chown $nombre:$nombre /var/www/$nombre/web/index.html
+		sedhtml=$(sed "s/USER/${nombre}/" /var/www/$nombre/web/index.html )
+		echo "$sedhtml" > /var/www/$nombre/web/index.html
+		chmod +x /var/www/$nombre/web/index.html
+		
+		# Crear archivo de configuracion para la Web
+		
+		#La plantilla -> "000-plantillaWeb.conf" debe tener la siguiente configuración
+		
+		#<VirtualHost *:80>
+
+		#	ServerAdmin webmaster@localhost
+		#	DocumentRoot /var/www/USUARIO/web
+		#	ServerName USUARIO.iaw.com
+		#	Options -Indexes
+
+		#	ErrorLog /var/www/USUARIO/files/logs/USUARIO-error.log
+		#	CustomLog /var/www/USUARIO/files/logs/USUARIO-access.log combined
+
+		#	AssignUserID USUARIO USUARIO
+
+		#</VirtualHost>
+
+		
+		cd /etc/apache2/sites-available
+		cp 000-plantillaWeb.conf 001-$nombre.conf
+		sed=$(sed "s/USUARIO/${nombre}/g" 001-$nombre.conf )
+		echo "$sed" > 001-$nombre.conf
+		habilitarw=$(a2ensite 001-$nombre.conf)
+		echo "$habilitarw"
+		reinicio=$(systemctl restart apache2)
+		echo "$reinicio"
+		
+		
+		#Crear wordpress para cada usuario
+		
+		dbnombre="wp_$nombre"
+		
+		mariadb -e "CREATE DATABASE $dbnombre;"
+		mariadb -e "CREATE USER '"$nombre"'@'localhost' IDENTIFIED BY '"$contrasenia"';"
+		mariadb -e "GRANT ALL ON "$dbnombre".* TO '"$nombre"'@'localhost' IDENTIFIED BY '"$contrasenia"';"
+		
+		# Crear archivo de configuracion para el blog
+		
+		#La plantilla -> "000-plantillaBlog.conf" debe tener la siguiente configuración
+		
+		#<VirtualHost *:80>
+
+		#	ServerAdmin USUARIO@localhost
+		#	DocumentRoot /var/www/USUARIO/blog/wordpress
+		#	ServerName blog.USUARIO.iaw.com
+		#	Options -Indexes        
+
+		#	ErrorLog /var/www/USUARIO/files/logs/blog.USUARIO.iaw.com
+		#	CustomLog /var/www/USUARIO/files/logs/blog.USUARIO.iaw.com-access combi>
+
+		#	AssignUserID USUARIO USUARIO
+
+		#</VirtualHost>
+		
+		cd /etc/apache2/sites-available
+		cp 000-plantillaBlog.conf 002-$dbnombre.conf
+		sed=$(sed "s/USUARIO/${nombre}/g" 002-$dbnombre.conf )
+		echo "$sed" > 002-$dbnombre.conf
+		habilitarb=$(a2ensite 002-$dbnombre.conf)
+		echo "$habilitarb"
+		reinicio=$(systemctl restart apache2)
+		echo "$reinicio"
+		
+		#Descargar WP y extraer a tmp
+		
+		cd /var/www/$nombre/blog
+		wget https://wordpress.org/latest.tar.gz
+		tar xvzf latest.tar.gz
+		
+		#permisos
+		
+		chmod -R 770 /var/www/$nombre/blog
+		chown -R $nombre:$nombre /var/www/$nombre/blog
+		
+		#copiar el arhivo de configuracion
+		
+		dbname="wp_$nombre"
+		dbuser="$nombre"
+		dbpw="$contrasenia"
+		
+		#copiar el archivo de ejemplo
+		
+		cp /var/www/$nombre/blog/wordpress/wp-config-sample.php /var/www/$nombre/blog/wordpress/wp-config.php
+		chown $nombre:$nombre /var/www/$nombre/blog/wordpress/wp-config.php
+		
+		#sustitucion de valores
+		
+		sed -i "s/database_name_here/$dbname/g" "/var/www/$nombre/blog/wordpress/wp-config.php"
+		sed -i "s/username_here/$dbuser/g" "/var/www/$nombre/blog/wordpress/wp-config.php"
+		sed -i "s/password_here/$dbpw/g" "/var/www/$nombre/blog/wordpress/wp-config.php"
+		
+		#Crear el mail a enviar al usuario
+	    
+	    	printf "\n
+		QUERIDO CLIENTE: \n
+		\n
+		A continuación le mostraremos sus credenciales:
+		Usuario: $nombre
+		Contraseña: $contrasenia
+		Los dominios personales son:
+		Para la página web: $nombre.iaw.com
+		Para el blog: blog.$nombre.iaw.com
+		
+	    "  | mail -s "BIENVENIDO/A" $correo   
+		
+	fi
+		
+elif [ 2 -eq $opcion ]; then
+
+	echo "======================================================="
+	echo -e "A continuación se listará los usuarios del sistema:" 
+	echo "======================================================="
+	echo ""
+        cat /etc/passwd | grep '/var/www' | cut -d: -f1
+            	
+        read -p "¿Qué usuario deseas modificar?: " nombre
+            	
+		if [ -d /var/www/$nombre ]; then
+			echo 'El usuario' $nombre 'es correcto' 
+			echo ""
+			# Pedir contraseña nueva, dos veces por cuestiones de seguridad
+		    	echo "¡ADVERTENCIA! La nueva contraseña debe cotener 8 caracteres con mayusculas y minusculas y caracteres especiales"
+		    	read -p "Introduce una nueva contraseña para $nombre: " newpassword
+		    	read -p "Repite la contraseña para confirmación: " newpasswordrepeat
+			# Comparar contraseñas
+			if [ $newpassword = $newpasswordrepeat ]; then 
+				printf "$nombre:$newpassword"  | chpasswd
+		            	echo "¡Contraseña actualizada!"
+			else 
+				echo "¡Las contraseñas no coinciden!"
+				read -p "Introduce una nueva contraseña para el usuario $nombre: " newpassword
+				read -p "Repite la contraseña para confirmacion: " newpasswordrepeat
+		    	fi
+		else 
+			echo "Nombre de usuario incorrecto"
+			read -p "Escriba de nuevo el usuario: " nombre
+			
+			if [ -d /var/www/$nombre ]; then
+				echo 'El usuario' $nombre 'es correcto' 
+				echo ""
+				# Pedir contraseña nueva, dos veces por seguridad
+				read -p "Introduce una nueva contraseña para $nombre (debe contener al menos 8 caracteres): " newpassword
+			   	read -p "Repite la contraseña para confirmación: " newpasswordrepeat
+				# Comparar contraseñas
+				if [ $newpassword = $newpasswordrepeat ]; then 
+					printf "$nombre:$newpassword"  | chpasswd
+				    	echo "¡Contraseña actualizada!"
+				else 
+					echo "¡Las contraseñas no coinciden!"
+					read -p "Introduce de nuevo una nueva contraseña para el usuario $nombre: " newpassword
+					read -p "Repite la contraseña para confirmacion: " newpasswordrepeat
+			    	fi
+			fi
+			
+		fi
+		
+elif [ 3 -eq $opcion ]; then
+	
+	echo ""
+	echo "======================================================="
+	echo -e "A continuación se listará los usuarios del sistema:" 
+	echo "======================================================="
+	echo ""
+        cat /etc/passwd | grep '/var/www' | cut -d: -f1
+	echo ""
+elif [ 4 -eq $opcion ]; then
+	echo ""
+	echo "======================================================="
+	echo -e "A continuación se listará los usuarios del sistema:" 
+	echo "======================================================="
+	echo ""
+        cat /etc/passwd | grep '/var/www' | cut -d: -f1
+        echo ""
+	read -p '¿Que usuario desea borrar?: ' nombre
+
+		if [ -d /var/www/$nombre ]; then
+			cd /etc/apache2/sites-enabled
+			dbnombre="wp_$nombre"
+			deshabilitarw=$(a2dissite 001-$nombre.conf)
+			deshabilitarb=$(a2dissite 002-$dbnombre.conf)
+			reiniciod=$(systemctl restart apache2)	
+			echo "$deshabilitarw"
+			echo "$deshabilitarb"
+			echo "$reiniciod"
+			mariadb -e "REVOKE ALL PRIVILEGES, GRANT OPTION FROM '"$nombre"'@'localhost';"
+			mariadb -e "DROP DATABASE $dbnombre;"
+			mariadb -e "DROP USER '"$nombre"'@'localhost';"
+			usermod -L $nombre
+			userdel -r $nombre
+			rm /etc/apache2/sites-available/001-$nombre.conf
+			rm /etc/apache2/sites-available/002-$dbnombre.conf
+			echo 'Se eliminó al usuario ' $nombre ', su carpeta' 'y se deshabilitaron y se elimianron sus respectivos dominios.'
+		else
+			echo "el usuario no existe"
+		fi
+	else 
+	    echo salir
+	fi
